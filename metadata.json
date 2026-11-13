@@ -1,0 +1,6 @@
+{
+  "name": "Askari Takaful",
+  "description": "Askari AI Takaful Sales Assistant for General Manager lead management, prospect search, bilingual Urdu and English Gemini AI messaging, official product library, and follow-up tracking.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

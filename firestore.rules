@@ -1,0 +1,203 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // Global default-deny safety net
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isOwner(userId) {
+      return isSignedIn() && request.auth.uid == userId;
+    }
+
+    function isValidId(id) {
+      return id is string && id.size() >= 1 && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+
+    function incoming() {
+      return request.resource.data;
+    }
+
+    function existing() {
+      return resource.data;
+    }
+
+    function isValidPermissionStatus(val) {
+      return val in ['VERIFIED_PUBLIC', 'CONSENT_OBTAINED', 'REFERRAL_INTRO', 'DO_NOT_CONTACT'];
+    }
+
+    function isValidLeadStatus(val) {
+      return val in ['NEW', 'CONTACTED', 'INTERESTED', 'FOLLOW_UP', 'COMPLETED', 'ARCHIVED'];
+    }
+
+    function isValidChannel(val) {
+      return val in ['WHATSAPP', 'PHONE', 'EMAIL', 'MEETING', 'OTHER'];
+    }
+
+    function isValidProductId(val) {
+      return val in ['golden_path', 'muhafiz', 'iqra', 'humrahi', 'pursukoon_kal', 'sarbuland', 'kanz_ul_askari'];
+    }
+
+    function isValidLead(data, userId) {
+      return data.userId is string && data.userId == userId &&
+             data.name is string && data.name.size() >= 1 && data.name.size() <= 120 &&
+             data.city is string && data.city.size() >= 1 && data.city.size() <= 80 &&
+             data.permissionStatus is string && isValidPermissionStatus(data.permissionStatus) &&
+             data.status is string && isValidLeadStatus(data.status) &&
+             (!('company' in data) || (data.company is string && data.company.size() <= 150)) &&
+             (!('designation' in data) || (data.designation is string && data.designation.size() <= 120)) &&
+             (!('industry' in data) || (data.industry is string && data.industry.size() <= 120)) &&
+             (!('contactPhone' in data) || (data.contactPhone is string && data.contactPhone.size() <= 40)) &&
+             (!('email' in data) || (data.email is string && data.email.size() <= 150)) &&
+             (!('website' in data) || (data.website is string && data.website.size() <= 300)) &&
+             (!('linkedInUrl' in data) || (data.linkedInUrl is string && data.linkedInUrl.size() <= 300)) &&
+             (!('source' in data) || (data.source is string && data.source.size() <= 100)) &&
+             (!('notes' in data) || (data.notes is string && data.notes.size() <= 2000)) &&
+             (!('followUpDate' in data) || (data.followUpDate is string && data.followUpDate.size() <= 20)) &&
+             data.createdAt is timestamp &&
+             data.updatedAt is timestamp;
+    }
+
+    function isValidContactHistory(data, userId, leadId) {
+      return data.userId is string && data.userId == userId &&
+             data.leadId is string && data.leadId == leadId &&
+             data.channel is string && isValidChannel(data.channel) &&
+             data.summary is string && data.summary.size() >= 1 && data.summary.size() <= 1000 &&
+             (!('outcome' in data) || (data.outcome is string && data.outcome.size() <= 200)) &&
+             data.createdAt is timestamp;
+    }
+
+    function isValidProductNote(data, userId, productId) {
+      return data.userId is string && data.userId == userId &&
+             data.productId is string && data.productId == productId && isValidProductId(productId) &&
+             data.isVerifiedByUser is bool &&
+             (!('verifiedSummary' in data) || (data.verifiedSummary is string && data.verifiedSummary.size() <= 2000)) &&
+             (!('verifiedEligibility' in data) || (data.verifiedEligibility is string && data.verifiedEligibility.size() <= 500)) &&
+             (!('verifiedSourceDate' in data) || (data.verifiedSourceDate is string && data.verifiedSourceDate.size() <= 40)) &&
+             data.createdAt is timestamp &&
+             data.updatedAt is timestamp;
+    }
+
+    function isValidProspect(data) {
+      return data.userId is string && data.userId == request.auth.uid &&
+             data.name is string && data.name.size() >= 1 && data.name.size() <= 120 &&
+             data.contact is string && data.contact.size() <= 150 &&
+             data.status is string && data.status.size() >= 1 && data.status.size() <= 60 &&
+             (!('notes' in data) || (data.notes is string && data.notes.size() <= 2000)) &&
+             data.createdAt is timestamp &&
+             data.updatedAt is timestamp;
+    }
+
+    match /users/{userId}/leads/{leadId} {
+      allow get: if isOwner(userId) && isValidId(leadId);
+      allow list: if isOwner(userId);
+
+      allow create: if isOwner(userId) &&
+                       isValidId(leadId) &&
+                       incoming().keys().hasAll(['userId', 'name', 'city', 'permissionStatus', 'status', 'createdAt', 'updatedAt']) &&
+                       incoming().keys().hasOnly([
+                         'userId', 'name', 'company', 'designation', 'city', 'industry',
+                         'contactPhone', 'email', 'website', 'linkedInUrl', 'source',
+                         'notes', 'permissionStatus', 'status', 'followUpDate',
+                         'createdAt', 'updatedAt'
+                       ]) &&
+                       incoming().createdAt <= request.time &&
+                       incoming().updatedAt <= request.time &&
+                       isValidLead(incoming(), userId);
+
+      allow update: if isOwner(userId) &&
+                       isValidId(leadId) &&
+                       isValidLead(incoming(), userId) &&
+                       existing().status != 'ARCHIVED' &&
+                       incoming().userId == existing().userId &&
+                       incoming().createdAt == existing().createdAt &&
+                       incoming().updatedAt <= request.time && (
+                         // Action 1: Full lead details edit
+                         incoming().diff(existing()).affectedKeys().hasOnly([
+                           'name', 'company', 'designation', 'city', 'industry',
+                           'contactPhone', 'email', 'website', 'linkedInUrl', 'source',
+                           'notes', 'permissionStatus', 'status', 'followUpDate', 'updatedAt'
+                         ]) ||
+                         // Action 2: Pipeline status / follow-up quick update
+                         incoming().diff(existing()).affectedKeys().hasOnly(['status', 'followUpDate', 'updatedAt'])
+                       );
+
+      allow delete: if isOwner(userId) && isValidId(leadId);
+
+      match /history/{entryId} {
+        allow get: if isOwner(userId) && isValidId(leadId) && isValidId(entryId);
+        allow list: if isOwner(userId) && isValidId(leadId);
+
+        allow create: if isOwner(userId) &&
+                         isValidId(leadId) &&
+                         isValidId(entryId) &&
+                         incoming().keys().hasAll(['userId', 'leadId', 'channel', 'summary', 'createdAt']) &&
+                         incoming().keys().hasOnly(['userId', 'leadId', 'channel', 'summary', 'outcome', 'createdAt']) &&
+                         incoming().createdAt <= request.time &&
+                         isValidContactHistory(incoming(), userId, leadId) &&
+                         exists(/databases/$(database)/documents/users/$(userId)/leads/$(leadId));
+
+        allow update: if false;
+        allow delete: if isOwner(userId) && isValidId(leadId) && isValidId(entryId);
+      }
+    }
+
+    match /users/{userId}/productNotes/{productId} {
+      allow get: if isOwner(userId) && isValidId(productId) && isValidProductId(productId);
+      allow list: if isOwner(userId);
+
+      allow create: if isOwner(userId) &&
+                       isValidId(productId) &&
+                       incoming().keys().hasAll(['userId', 'productId', 'isVerifiedByUser', 'createdAt', 'updatedAt']) &&
+                       incoming().keys().hasOnly([
+                         'userId', 'productId', 'verifiedSummary', 'verifiedEligibility',
+                         'verifiedSourceDate', 'isVerifiedByUser', 'createdAt', 'updatedAt'
+                       ]) &&
+                       incoming().createdAt <= request.time &&
+                       incoming().updatedAt <= request.time &&
+                       isValidProductNote(incoming(), userId, productId);
+
+      allow update: if isOwner(userId) &&
+                       isValidId(productId) &&
+                       isValidProductNote(incoming(), userId, productId) &&
+                       incoming().userId == existing().userId &&
+                       incoming().productId == existing().productId &&
+                       incoming().createdAt == existing().createdAt &&
+                       incoming().updatedAt <= request.time &&
+                       incoming().diff(existing()).affectedKeys().hasOnly([
+                         'verifiedSummary', 'verifiedEligibility', 'verifiedSourceDate',
+                         'isVerifiedByUser', 'updatedAt'
+                       ]);
+
+      allow delete: if isOwner(userId) && isValidId(productId);
+    }
+
+    match /prospects/{prospectId} {
+      allow get: if isSignedIn() && isValidId(prospectId) && existing().userId == request.auth.uid;
+      allow list: if isSignedIn() && existing().userId == request.auth.uid;
+
+      allow create: if isSignedIn() &&
+                       isValidId(prospectId) &&
+                       incoming().keys().hasAll(['userId', 'name', 'contact', 'status', 'createdAt', 'updatedAt']) &&
+                       incoming().keys().hasOnly(['userId', 'name', 'contact', 'status', 'notes', 'createdAt', 'updatedAt']) &&
+                       incoming().createdAt <= request.time &&
+                       incoming().updatedAt <= request.time &&
+                       isValidProspect(incoming());
+
+      allow update: if isSignedIn() &&
+                       isValidId(prospectId) &&
+                       existing().userId == request.auth.uid &&
+                       incoming().userId == existing().userId &&
+                       incoming().createdAt == existing().createdAt &&
+                       incoming().updatedAt <= request.time &&
+                       incoming().diff(existing()).affectedKeys().hasOnly(['name', 'contact', 'status', 'notes', 'updatedAt']) &&
+                       isValidProspect(incoming());
+
+      allow delete: if isSignedIn() && isValidId(prospectId) && existing().userId == request.auth.uid;
+    }
+  }
+}

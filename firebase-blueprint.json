@@ -1,0 +1,217 @@
+{
+  "entities": {
+    "Lead": {
+      "title": "Lead",
+      "description": "A verified or manually recorded sales prospect for Askari Family Takaful owned by the authenticated user.",
+      "type": "object",
+      "properties": {
+        "userId": {
+          "type": "string",
+          "description": "Authenticated owner UID."
+        },
+        "name": {
+          "type": "string",
+          "description": "Prospect full name."
+        },
+        "company": {
+          "type": "string",
+          "description": "Company, hospital, school, or housing society name."
+        },
+        "designation": {
+          "type": "string",
+          "description": "Decision-maker role or designation."
+        },
+        "city": {
+          "type": "string",
+          "description": "City in Pakistan (default Islamabad)."
+        },
+        "industry": {
+          "type": "string",
+          "description": "Business type or sector."
+        },
+        "contactPhone": {
+          "type": "string",
+          "description": "Publicly available business phone or WhatsApp number."
+        },
+        "email": {
+          "type": "string",
+          "description": "Publicly available business email address."
+        },
+        "website": {
+          "type": "string",
+          "description": "Public business website URL."
+        },
+        "linkedInUrl": {
+          "type": "string",
+          "description": "Public LinkedIn profile or company URL."
+        },
+        "source": {
+          "type": "string",
+          "description": "Origin of the lead (e.g. Public Search, Referral, LinkedIn)."
+        },
+        "notes": {
+          "type": "string",
+          "description": "Sales context and notes."
+        },
+        "permissionStatus": {
+          "type": "string",
+          "enum": ["VERIFIED_PUBLIC", "CONSENT_OBTAINED", "REFERRAL_INTRO", "DO_NOT_CONTACT"],
+          "description": "Outreach permission status."
+        },
+        "status": {
+          "type": "string",
+          "enum": ["NEW", "CONTACTED", "INTERESTED", "FOLLOW_UP", "COMPLETED", "ARCHIVED"],
+          "description": "Current pipeline stage."
+        },
+        "followUpDate": {
+          "type": "string",
+          "description": "Scheduled follow-up date in YYYY-MM-DD format, or empty string."
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server timestamp set via FieldValue.serverTimestamp()."
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server timestamp set via FieldValue.serverTimestamp()."
+        }
+      },
+      "required": ["userId", "name", "city", "permissionStatus", "status", "createdAt", "updatedAt"]
+    },
+    "ContactHistoryEntry": {
+      "title": "ContactHistoryEntry",
+      "description": "An outreach or follow-up interaction logged for a specific Lead.",
+      "type": "object",
+      "properties": {
+        "userId": {
+          "type": "string",
+          "description": "Authenticated owner UID."
+        },
+        "leadId": {
+          "type": "string",
+          "description": "Parent Lead document ID."
+        },
+        "channel": {
+          "type": "string",
+          "enum": ["WHATSAPP", "PHONE", "EMAIL", "MEETING", "OTHER"],
+          "description": "Communication channel used."
+        },
+        "summary": {
+          "type": "string",
+          "description": "Summary of the contact or approved message."
+        },
+        "outcome": {
+          "type": "string",
+          "description": "Result or next step."
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server timestamp set via FieldValue.serverTimestamp()."
+        }
+      },
+      "required": ["userId", "leadId", "channel", "summary", "createdAt"]
+    },
+    "ProductVerificationNote": {
+      "title": "ProductVerificationNote",
+      "description": "Official verified product notes recorded by the GM from Askari Life & Family Takaful published sources.",
+      "type": "object",
+      "properties": {
+        "userId": {
+          "type": "string",
+          "description": "Authenticated owner UID."
+        },
+        "productId": {
+          "type": "string",
+          "enum": ["golden_path", "muhafiz", "iqra", "humrahi", "pursukoon_kal", "sarbuland", "kanz_ul_askari"],
+          "description": "Official Askari Family Takaful product identifier."
+        },
+        "verifiedSummary": {
+          "type": "string",
+          "description": "Official published summary verified by the GM."
+        },
+        "verifiedEligibility": {
+          "type": "string",
+          "description": "Official eligibility or plan notes verified by the GM."
+        },
+        "verifiedSourceDate": {
+          "type": "string",
+          "description": "Date verified against askarilife.com."
+        },
+        "isVerifiedByUser": {
+          "type": "boolean",
+          "description": "Whether the GM has verified these details against official published brochures."
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server timestamp set via FieldValue.serverTimestamp()."
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server timestamp set via FieldValue.serverTimestamp()."
+        }
+      },
+      "required": ["userId", "productId", "isVerifiedByUser", "createdAt", "updatedAt"]
+    },
+    "Prospect": {
+      "title": "Prospect",
+      "description": "A prospect recorded via the Add New Prospect screen with name, contact, status, and notes.",
+      "type": "object",
+      "properties": {
+        "userId": {
+          "type": "string",
+          "description": "Authenticated owner UID."
+        },
+        "name": {
+          "type": "string",
+          "description": "Prospect full name."
+        },
+        "contact": {
+          "type": "string",
+          "description": "Phone, WhatsApp, or email contact details."
+        },
+        "status": {
+          "type": "string",
+          "description": "Prospect status text."
+        },
+        "notes": {
+          "type": "string",
+          "description": "Additional prospect notes."
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server timestamp set via FieldValue.serverTimestamp()."
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server timestamp set via FieldValue.serverTimestamp()."
+        }
+      },
+      "required": ["userId", "name", "contact", "status", "createdAt", "updatedAt"]
+    }
+  },
+  "firestore": {
+    "/users/{userId}/leads/{leadId}": {
+      "schema": { "$ref": "#/entities/Lead" },
+      "description": "User-isolated sales leads for Askari Family Takaful."
+    },
+    "/users/{userId}/leads/{leadId}/history/{entryId}": {
+      "schema": { "$ref": "#/entities/ContactHistoryEntry" },
+      "description": "Follow-up and contact history subcollection for a lead."
+    },
+    "/users/{userId}/productNotes/{productId}": {
+      "schema": { "$ref": "#/entities/ProductVerificationNote" },
+      "description": "User-recorded official verification notes for the seven Askari Family Takaful products."
+    },
+    "/prospects/{prospectId}": {
+      "schema": { "$ref": "#/entities/Prospect" },
+      "description": "User-isolated prospects saved from the Add New Prospect screen."
+    }
+  }
+}
