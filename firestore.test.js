@@ -313,3 +313,61 @@ test("Prospects collection enforces per-user ownership and schema", async () => 
   // Owner delete succeeds
   await assertSucceeds(aliceProspectRef.delete());
 });
+
+test("GM monthly targets enforce owner isolation and positive integer bounds", async () => {
+  const aliceDb = testEnv.authenticatedContext(ALICE_UID).firestore();
+  const bobDb = testEnv.authenticatedContext(BOB_UID).firestore();
+  const now = new Date();
+  const ref = aliceDb
+    .collection("users")
+    .doc(ALICE_UID)
+    .collection("gmSettings")
+    .doc("monthly_targets");
+
+  const validTargets = {
+    userId: ALICE_UID,
+    targetMonth: "2026-11",
+    salesTarget: 8,
+    outreachTarget: 30,
+    referralTarget: 12,
+    createdAt: now,
+    updatedAt: now,
+  };
+
+  await assertSucceeds(ref.set(validTargets));
+  await assertSucceeds(ref.get());
+  await assertSucceeds(
+    ref.update({ salesTarget: 10, updatedAt: new Date() })
+  );
+
+  // Invalid negative target denied
+  await assertFails(ref.update({ salesTarget: 0, updatedAt: new Date() }));
+
+  // Arbitrary setting ID denied
+  await assertFails(
+    aliceDb
+      .collection("users")
+      .doc(ALICE_UID)
+      .collection("gmSettings")
+      .doc("other_doc")
+      .set(validTargets)
+  );
+
+  // Cross-user read/write denied
+  await assertFails(
+    bobDb
+      .collection("users")
+      .doc(ALICE_UID)
+      .collection("gmSettings")
+      .doc("monthly_targets")
+      .get()
+  );
+  await assertFails(
+    bobDb
+      .collection("users")
+      .doc(ALICE_UID)
+      .collection("gmSettings")
+      .doc("monthly_targets")
+      .update({ salesTarget: 99, updatedAt: new Date() })
+  );
+});

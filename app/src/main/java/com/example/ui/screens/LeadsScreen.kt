@@ -19,11 +19,11 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.OpenInNew
 import androidx.compose.material.icons.automirrored.filled.Send
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.Call
 import androidx.compose.material.icons.filled.Clear
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Download
@@ -31,30 +31,23 @@ import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.Event
 import androidx.compose.material.icons.filled.PersonAdd
 import androidx.compose.material.icons.filled.Search
+import androidx.compose.material.icons.filled.Upgrade
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.DatePicker
-import androidx.compose.material3.DatePickerDialog
-import androidx.compose.material3.DropdownMenuItem
-import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.ExposedDropdownMenuBox
-import androidx.compose.material3.ExposedDropdownMenuDefaults
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.MenuAnchorType
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
-import androidx.compose.material3.rememberDatePickerState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -87,10 +80,6 @@ import com.example.ui.theme.PureWhite
 import com.example.ui.viewmodel.MainViewModel
 import com.example.ui.viewmodel.UiState
 import com.example.util.OutreachIntents
-import java.text.SimpleDateFormat
-import java.util.Date
-import java.util.Locale
-import java.util.TimeZone
 
 @Composable
 fun LeadsScreen(
@@ -105,6 +94,7 @@ fun LeadsScreen(
     onSaveLead: (Lead) -> Unit,
     onDeleteLead: (String) -> Unit,
     onDeleteProspect: (String) -> Unit = {},
+    onUpgradeProspectToLead: (prospectId: String, lead: Lead) -> Unit = { _, _ -> },
     onOpenAddNewProspect: () -> Unit = {},
     onOpenAiStudio: (Lead) -> Unit,
     onOpenFollowUps: () -> Unit
@@ -113,6 +103,7 @@ fun LeadsScreen(
     var searchQuery by remember { mutableStateOf("") }
     var cityFilter by remember { mutableStateOf("ALL") }
     var editorLead by remember(prefilledLeadDraft) { mutableStateOf(prefilledLeadDraft) }
+    var upgradingProspectId by remember { mutableStateOf<String?>(null) }
     var deleteCandidate by remember { mutableStateOf<Lead?>(null) }
 
     val allLeads = (leadsState as? UiState.Success)?.data.orEmpty()
@@ -281,14 +272,36 @@ fun LeadsScreen(
                             verticalArrangement = Arrangement.spacedBy(12.dp)
                         ) {
                             items(filteredProspects, key = { "prospect_${it.id}" }) { prospect ->
+                                val dialablePhone = OutreachIntents.extractPhoneOrNull(prospect.contact)
                                 QuickProspectCard(
                                     prospect = prospect,
+                                    strings = strings,
+                                    canCall = dialablePhone != null,
+                                    onCall = { dialablePhone?.let { OutreachIntents.dialPhone(context, it) } },
+                                    onUpgradeToLead = {
+                                        upgradingProspectId = prospect.id
+                                        val matchedStatus = LeadStatus.entries.firstOrNull {
+                                            it.name.equals(prospect.status, ignoreCase = true) ||
+                                                it.labelEn.equals(prospect.status, ignoreCase = true) ||
+                                                it.labelUr.equals(prospect.status, ignoreCase = true)
+                                        } ?: LeadStatus.NEW
+                                        editorLead = Lead(
+                                            name = prospect.name,
+                                            contactPhone = dialablePhone.orEmpty(),
+                                            email = OutreachIntents.extractEmailOrNull(prospect.contact).orEmpty(),
+                                            city = OwnerProfile.DEFAULT_MARKET_CITY,
+                                            source = "Quick Prospect",
+                                            notes = prospect.notes,
+                                            status = matchedStatus.name
+                                        )
+                                    },
                                     onDelete = { onDeleteProspect(prospect.id) },
                                     onAiStudio = {
                                         onOpenAiStudio(
                                             Lead(
                                                 name = prospect.name,
-                                                contactPhone = prospect.contact,
+                                                contactPhone = dialablePhone ?: prospect.contact,
+                                                email = OutreachIntents.extractEmailOrNull(prospect.contact).orEmpty(),
                                                 notes = prospect.notes,
                                                 status = prospect.status
                                             )
@@ -299,9 +312,24 @@ fun LeadsScreen(
                             items(filteredLeads, key = { "lead_${it.id}" }) { lead ->
                                 LeadCard(
                                     lead = lead,
+                                    strings = strings,
                                     language = language,
-                                    onEdit = { editorLead = lead },
+                                    onEdit = {
+                                        upgradingProspectId = null
+                                        editorLead = lead
+                                    },
                                     onDelete = { deleteCandidate = lead },
+                                    onCall = { OutreachIntents.dialPhone(context, lead.contactPhone) },
+                                    onLogReferral = {
+                                        upgradingProspectId = null
+                                        editorLead = Lead(
+                                            city = lead.city.ifBlank { OwnerProfile.DEFAULT_MARKET_CITY },
+                                            source = "Referral from ${lead.name}",
+                                            permissionStatus = LeadPermissionStatus.REFERRAL_INTRO.name,
+                                            status = LeadStatus.NEW.name,
+                                            notes = "Warm referral introduced by ${lead.name} (${lead.company.ifBlank { lead.city }})"
+                                        )
+                                    },
                                     onAiStudio = { onOpenAiStudio(lead) },
                                     onOpenWebsite = { url -> OutreachIntents.openUrl(context, url) },
                                     onFollowUp = onOpenFollowUps
@@ -333,11 +361,18 @@ fun LeadsScreen(
             language = language,
             onDismiss = {
                 editorLead = null
+                upgradingProspectId = null
                 onConsumePrefilledDraft()
             },
             onSave = { updated ->
-                onSaveLead(updated)
+                val upgradeId = upgradingProspectId
+                if (upgradeId != null) {
+                    onUpgradeProspectToLead(upgradeId, updated)
+                } else {
+                    onSaveLead(updated)
+                }
                 editorLead = null
+                upgradingProspectId = null
                 onConsumePrefilledDraft()
             }
         )
@@ -371,6 +406,10 @@ fun LeadsScreen(
 @Composable
 private fun QuickProspectCard(
     prospect: Prospect,
+    strings: UiStrings,
+    canCall: Boolean,
+    onCall: () -> Unit,
+    onUpgradeToLead: () -> Unit,
     onDelete: () -> Unit,
     onAiStudio: () -> Unit
 ) {
@@ -428,15 +467,37 @@ private fun QuickProspectCard(
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                Button(
-                    onClick = onAiStudio,
-                    colors = ButtonDefaults.buttonColors(containerColor = Navy900, contentColor = PureWhite),
-                    shape = RoundedCornerShape(10.dp),
-                    contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp)
-                ) {
-                    Icon(Icons.AutoMirrored.Filled.Send, contentDescription = null, tint = Gold400, modifier = Modifier.size(15.dp))
-                    Spacer(Modifier.width(6.dp))
-                    Text("AI", style = MaterialTheme.typography.labelMedium)
+                Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                    Button(
+                        onClick = onAiStudio,
+                        colors = ButtonDefaults.buttonColors(containerColor = Navy900, contentColor = PureWhite),
+                        shape = RoundedCornerShape(10.dp),
+                        contentPadding = PaddingValues(horizontal = 10.dp, vertical = 6.dp)
+                    ) {
+                        Icon(Icons.AutoMirrored.Filled.Send, contentDescription = null, tint = Gold400, modifier = Modifier.size(15.dp))
+                        Spacer(Modifier.width(4.dp))
+                        Text("AI", style = MaterialTheme.typography.labelMedium)
+                    }
+                    if (canCall) {
+                        OutlinedButton(
+                            onClick = onCall,
+                            shape = RoundedCornerShape(10.dp),
+                            contentPadding = PaddingValues(horizontal = 10.dp, vertical = 6.dp),
+                            modifier = Modifier.testTag("call_prospect_${prospect.id}")
+                        ) {
+                            Icon(Icons.Filled.Call, contentDescription = strings.callProspect, modifier = Modifier.size(15.dp))
+                        }
+                    }
+                    OutlinedButton(
+                        onClick = onUpgradeToLead,
+                        shape = RoundedCornerShape(10.dp),
+                        contentPadding = PaddingValues(horizontal = 10.dp, vertical = 6.dp),
+                        modifier = Modifier.testTag("upgrade_prospect_${prospect.id}")
+                    ) {
+                        Icon(Icons.Filled.Upgrade, contentDescription = null, modifier = Modifier.size(15.dp))
+                        Spacer(Modifier.width(4.dp))
+                        Text(strings.upgradeToLead, style = MaterialTheme.typography.labelSmall, maxLines = 1)
+                    }
                 }
                 IconButton(onClick = onDelete) {
                     Icon(Icons.Filled.Delete, contentDescription = "Delete prospect", tint = CrimsonError)
@@ -449,9 +510,12 @@ private fun QuickProspectCard(
 @Composable
 private fun LeadCard(
     lead: Lead,
+    strings: UiStrings,
     language: AppLanguage,
     onEdit: () -> Unit,
     onDelete: () -> Unit,
+    onCall: () -> Unit,
+    onLogReferral: () -> Unit,
     onAiStudio: () -> Unit,
     onOpenWebsite: (String) -> Unit,
     onFollowUp: () -> Unit
@@ -459,6 +523,8 @@ private fun LeadCard(
     val status = LeadStatus.fromString(lead.status)
     val perm = LeadPermissionStatus.fromString(lead.permissionStatus)
     val isArchived = status == LeadStatus.ARCHIVED
+    val canCall = lead.contactPhone.isNotBlank() && perm != LeadPermissionStatus.DO_NOT_CONTACT
+    val canLogReferral = status == LeadStatus.COMPLETED || status == LeadStatus.INTERESTED
 
     val (statusBg, statusFg) = when (status) {
         LeadStatus.COMPLETED -> EmeraldSurface to EmeraldSuccess
@@ -565,11 +631,21 @@ private fun LeadCard(
                         onClick = onAiStudio,
                         colors = ButtonDefaults.buttonColors(containerColor = Navy900, contentColor = PureWhite),
                         shape = RoundedCornerShape(10.dp),
-                        contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp)
+                        contentPadding = PaddingValues(horizontal = 10.dp, vertical = 6.dp)
                     ) {
                         Icon(Icons.AutoMirrored.Filled.Send, contentDescription = null, tint = Gold400, modifier = Modifier.size(15.dp))
-                        Spacer(Modifier.width(6.dp))
+                        Spacer(Modifier.width(4.dp))
                         Text("AI", style = MaterialTheme.typography.labelMedium)
+                    }
+                    if (canCall) {
+                        OutlinedButton(
+                            onClick = onCall,
+                            shape = RoundedCornerShape(10.dp),
+                            contentPadding = PaddingValues(horizontal = 10.dp, vertical = 6.dp),
+                            modifier = Modifier.testTag("call_lead_${lead.id}")
+                        ) {
+                            Icon(Icons.Filled.Call, contentDescription = strings.callProspect, modifier = Modifier.size(15.dp))
+                        }
                     }
                     if (lead.website.isNotBlank() || lead.linkedInUrl.isNotBlank()) {
                         OutlinedButton(
@@ -577,7 +653,7 @@ private fun LeadCard(
                             shape = RoundedCornerShape(10.dp),
                             contentPadding = PaddingValues(horizontal = 10.dp, vertical = 6.dp)
                         ) {
-                            Icon(Icons.AutoMirrored.Filled.OpenInNew, contentDescription = null, modifier = Modifier.size(15.dp))
+                            Icon(Icons.AutoMirrored.Filled.OpenInNew, contentDescription = "Open link", modifier = Modifier.size(15.dp))
                         }
                     }
                     OutlinedButton(
@@ -585,11 +661,19 @@ private fun LeadCard(
                         shape = RoundedCornerShape(10.dp),
                         contentPadding = PaddingValues(horizontal = 10.dp, vertical = 6.dp)
                     ) {
-                        Icon(Icons.Filled.Event, contentDescription = null, modifier = Modifier.size(15.dp))
+                        Icon(Icons.Filled.Event, contentDescription = strings.navFollowUps, modifier = Modifier.size(15.dp))
                     }
                 }
 
                 Row {
+                    if (canLogReferral) {
+                        IconButton(
+                            onClick = onLogReferral,
+                            modifier = Modifier.testTag("log_referral_${lead.id}")
+                        ) {
+                            Icon(Icons.Filled.PersonAdd, contentDescription = strings.logReferral, tint = EmeraldSuccess)
+                        }
+                    }
                     IconButton(onClick = onEdit, enabled = !isArchived) {
                         Icon(Icons.Filled.Edit, contentDescription = "Edit lead")
                     }
@@ -598,264 +682,6 @@ private fun LeadCard(
                     }
                 }
             }
-        }
-    }
-}
-
-@OptIn(ExperimentalMaterial3Api::class)
-@Composable
-fun LeadEditorDialog(
-    initialLead: Lead,
-    strings: UiStrings,
-    language: AppLanguage,
-    onDismiss: () -> Unit,
-    onSave: (Lead) -> Unit
-) {
-    var name by remember { mutableStateOf(initialLead.name) }
-    var company by remember { mutableStateOf(initialLead.company) }
-    var designation by remember { mutableStateOf(initialLead.designation) }
-    var city by remember { mutableStateOf(initialLead.city.ifBlank { OwnerProfile.DEFAULT_MARKET_CITY }) }
-    var industry by remember { mutableStateOf(initialLead.industry) }
-    var phone by remember { mutableStateOf(initialLead.contactPhone) }
-    var email by remember { mutableStateOf(initialLead.email) }
-    var website by remember { mutableStateOf(initialLead.website) }
-    var linkedInUrl by remember { mutableStateOf(initialLead.linkedInUrl) }
-    var source by remember { mutableStateOf(initialLead.source.ifBlank { "Public Search" }) }
-    var notes by remember { mutableStateOf(initialLead.notes) }
-    var followUpDate by remember { mutableStateOf(initialLead.followUpDate) }
-    var permissionStatus by remember { mutableStateOf(LeadPermissionStatus.fromString(initialLead.permissionStatus)) }
-    var status by remember { mutableStateOf(LeadStatus.fromString(initialLead.status)) }
-    var showDatePicker by remember { mutableStateOf(false) }
-
-    var statusExpanded by remember { mutableStateOf(false) }
-    var permExpanded by remember { mutableStateOf(false) }
-
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        title = {
-            Text(if (initialLead.id.isBlank()) strings.addLead else strings.editLead)
-        },
-        text = {
-            Column(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .verticalScroll(rememberScrollState()),
-                verticalArrangement = Arrangement.spacedBy(10.dp)
-            ) {
-                OutlinedTextField(
-                    value = name,
-                    onValueChange = { if (it.length <= 120) name = it },
-                    label = { Text(strings.fieldNameReq) },
-                    singleLine = true,
-                    modifier = Modifier.fillMaxWidth().testTag("lead_name_input")
-                )
-                OutlinedTextField(
-                    value = company,
-                    onValueChange = { if (it.length <= 150) company = it },
-                    label = { Text(strings.fieldCompany) },
-                    singleLine = true,
-                    modifier = Modifier.fillMaxWidth().testTag("lead_company_input")
-                )
-                OutlinedTextField(
-                    value = designation,
-                    onValueChange = { if (it.length <= 120) designation = it },
-                    label = { Text(strings.fieldDesignation) },
-                    singleLine = true,
-                    modifier = Modifier.fillMaxWidth().testTag("lead_designation_input")
-                )
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    OutlinedTextField(
-                        value = city,
-                        onValueChange = { if (it.length <= 80) city = it },
-                        label = { Text(strings.fieldCityReq) },
-                        singleLine = true,
-                        modifier = Modifier.weight(1f).testTag("lead_city_input")
-                    )
-                    OutlinedTextField(
-                        value = industry,
-                        onValueChange = { if (it.length <= 120) industry = it },
-                        label = { Text(strings.fieldIndustry) },
-                        singleLine = true,
-                        modifier = Modifier.weight(1f)
-                    )
-                }
-                OutlinedTextField(
-                    value = phone,
-                    onValueChange = { if (it.length <= 40) phone = it },
-                    label = { Text(strings.fieldPhone) },
-                    singleLine = true,
-                    modifier = Modifier.fillMaxWidth().testTag("lead_phone_input")
-                )
-                OutlinedTextField(
-                    value = email,
-                    onValueChange = { if (it.length <= 150) email = it },
-                    label = { Text(strings.fieldEmail) },
-                    singleLine = true,
-                    modifier = Modifier.fillMaxWidth()
-                )
-                OutlinedTextField(
-                    value = website,
-                    onValueChange = { if (it.length <= 300) website = it },
-                    label = { Text(strings.fieldWebsite) },
-                    singleLine = true,
-                    modifier = Modifier.fillMaxWidth()
-                )
-                OutlinedTextField(
-                    value = linkedInUrl,
-                    onValueChange = { if (it.length <= 300) linkedInUrl = it },
-                    label = { Text(strings.fieldLinkedIn) },
-                    singleLine = true,
-                    modifier = Modifier.fillMaxWidth()
-                )
-                OutlinedTextField(
-                    value = source,
-                    onValueChange = { if (it.length <= 100) source = it },
-                    label = { Text(strings.fieldSource) },
-                    singleLine = true,
-                    modifier = Modifier.fillMaxWidth()
-                )
-
-                ExposedDropdownMenuBox(
-                    expanded = permExpanded,
-                    onExpandedChange = { permExpanded = !permExpanded }
-                ) {
-                    OutlinedTextField(
-                        value = if (language == AppLanguage.URDU) permissionStatus.labelUr else permissionStatus.labelEn,
-                        onValueChange = {},
-                        readOnly = true,
-                        label = { Text(strings.fieldPermissionStatus) },
-                        trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = permExpanded) },
-                        modifier = Modifier
-                            .menuAnchor(MenuAnchorType.PrimaryNotEditable)
-                            .fillMaxWidth()
-                    )
-                    ExposedDropdownMenu(expanded = permExpanded, onDismissRequest = { permExpanded = false }) {
-                        LeadPermissionStatus.entries.forEach { item ->
-                            DropdownMenuItem(
-                                text = { Text(if (language == AppLanguage.URDU) item.labelUr else item.labelEn) },
-                                onClick = {
-                                    permissionStatus = item
-                                    permExpanded = false
-                                }
-                            )
-                        }
-                    }
-                }
-
-                ExposedDropdownMenuBox(
-                    expanded = statusExpanded,
-                    onExpandedChange = { statusExpanded = !statusExpanded }
-                ) {
-                    OutlinedTextField(
-                        value = if (language == AppLanguage.URDU) status.labelUr else status.labelEn,
-                        onValueChange = {},
-                        readOnly = true,
-                        label = { Text(strings.fieldLeadStatus) },
-                        trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = statusExpanded) },
-                        modifier = Modifier
-                            .menuAnchor(MenuAnchorType.PrimaryNotEditable)
-                            .fillMaxWidth()
-                    )
-                    ExposedDropdownMenu(expanded = statusExpanded, onDismissRequest = { statusExpanded = false }) {
-                        LeadStatus.entries.forEach { item ->
-                            DropdownMenuItem(
-                                text = { Text(if (language == AppLanguage.URDU) item.labelUr else item.labelEn) },
-                                onClick = {
-                                    status = item
-                                    statusExpanded = false
-                                }
-                            )
-                        }
-                    }
-                }
-
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    OutlinedTextField(
-                        value = followUpDate,
-                        onValueChange = { if (it.length <= 20) followUpDate = it },
-                        label = { Text(strings.fieldFollowUpDate) },
-                        singleLine = true,
-                        modifier = Modifier.weight(1f)
-                    )
-                    OutlinedButton(onClick = { showDatePicker = true }) {
-                        Icon(Icons.Filled.Event, contentDescription = strings.fieldFollowUpDate)
-                    }
-                }
-
-                OutlinedTextField(
-                    value = notes,
-                    onValueChange = { if (it.length <= 2000) notes = it },
-                    label = { Text(strings.fieldNotes) },
-                    minLines = 2,
-                    modifier = Modifier.fillMaxWidth()
-                )
-            }
-        },
-        confirmButton = {
-            Button(
-                onClick = {
-                    onSave(
-                        initialLead.copy(
-                            name = name,
-                            company = company,
-                            designation = designation,
-                            city = city.ifBlank { OwnerProfile.DEFAULT_MARKET_CITY },
-                            industry = industry,
-                            contactPhone = phone,
-                            email = email,
-                            website = website,
-                            linkedInUrl = linkedInUrl,
-                            source = source,
-                            notes = notes,
-                            permissionStatus = permissionStatus.name,
-                            status = status.name,
-                            followUpDate = followUpDate
-                        )
-                    )
-                },
-                enabled = name.isNotBlank() && city.isNotBlank(),
-                modifier = Modifier.testTag("save_lead_dialog_button")
-            ) {
-                Text(strings.save)
-            }
-        },
-        dismissButton = {
-            TextButton(onClick = onDismiss) {
-                Text(strings.cancel)
-            }
-        }
-    )
-
-    if (showDatePicker) {
-        val datePickerState = rememberDatePickerState()
-        DatePickerDialog(
-            onDismissRequest = { showDatePicker = false },
-            confirmButton = {
-                TextButton(
-                    onClick = {
-                        datePickerState.selectedDateMillis?.let { millis ->
-                            val fmt = SimpleDateFormat("yyyy-MM-dd", Locale.US).apply {
-                                timeZone = TimeZone.getTimeZone("UTC")
-                            }
-                            followUpDate = fmt.format(Date(millis))
-                        }
-                        showDatePicker = false
-                    }
-                ) {
-                    Text(strings.save)
-                }
-            },
-            dismissButton = {
-                TextButton(onClick = { showDatePicker = false }) {
-                    Text(strings.cancel)
-                }
-            }
-        ) {
-            DatePicker(state = datePickerState)
         }
     }
 }

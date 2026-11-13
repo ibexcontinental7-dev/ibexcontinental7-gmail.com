@@ -57,6 +57,7 @@ import androidx.lifecycle.viewmodel.viewModelFactory
 import com.example.R
 import com.example.data.model.Lead
 import com.example.data.model.LeadStatus
+import com.example.data.model.OfficialTakafulProduct
 import com.example.data.repository.TakafulRepository
 import com.example.ui.auth.signOut
 import com.example.ui.localization.AppLanguage
@@ -116,6 +117,7 @@ fun MainAppShell(
     val prospectsState by mainViewModel.prospectsState.collectAsStateWithLifecycle()
     val metrics by mainViewModel.metricsState.collectAsStateWithLifecycle()
     val productNotesState by mainViewModel.productNotesState.collectAsStateWithLifecycle()
+    val monthlyTargetState by mainViewModel.monthlyTargetState.collectAsStateWithLifecycle()
     val actionMessage by mainViewModel.actionMessage.collectAsStateWithLifecycle()
 
     var currentTab by remember { mutableStateOf(AppTab.DASHBOARD) }
@@ -123,6 +125,7 @@ fun MainAppShell(
     var leadsFilter by remember { mutableStateOf<LeadStatus?>(null) }
     var prefilledLeadDraft by remember { mutableStateOf<Lead?>(null) }
     var studioSelectedLead by remember { mutableStateOf<Lead?>(null) }
+    var studioSelectedProduct by remember { mutableStateOf<OfficialTakafulProduct?>(null) }
 
     val snackbarHostState = remember { SnackbarHostState() }
 
@@ -278,6 +281,15 @@ fun MainAppShell(
                             language = language,
                             metrics = metrics,
                             leadsState = leadsState,
+                            monthlyTargetState = monthlyTargetState,
+                            onSaveMonthlyTarget = { sales, outreach, referrals, month ->
+                                mainViewModel.saveMonthlyTarget(
+                                    salesTarget = sales,
+                                    outreachTarget = outreach,
+                                    referralTarget = referrals,
+                                    targetMonth = month
+                                )
+                            },
                             onNavigateToLeads = { filter ->
                                 leadsFilter = filter
                                 currentTab = AppTab.LEADS
@@ -316,6 +328,9 @@ fun MainAppShell(
                             onSaveLead = { mainViewModel.saveLead(it) },
                             onDeleteLead = { mainViewModel.deleteLead(it) },
                             onDeleteProspect = { mainViewModel.deleteProspect(it) },
+                            onUpgradeProspectToLead = { prospectId, lead ->
+                                mainViewModel.upgradeProspectToLead(prospectId, lead)
+                            },
                             onOpenAddNewProspect = { showAddProspect = true },
                             onOpenAiStudio = { lead ->
                                 studioSelectedLead = lead
@@ -329,6 +344,8 @@ fun MainAppShell(
                             language = language,
                             leadsState = leadsState,
                             preselectedLead = studioSelectedLead,
+                            preselectedProduct = studioSelectedProduct,
+                            onConsumePreselectedProduct = { studioSelectedProduct = null },
                             aiViewModel = aiViewModel,
                             onLogOutreach = { leadId, channel, summary ->
                                 mainViewModel.logContactHistory(
@@ -344,7 +361,11 @@ fun MainAppShell(
                             strings = strings,
                             language = language,
                             notesState = productNotesState,
-                            onSaveProductNote = { mainViewModel.saveProductNote(it) }
+                            onSaveProductNote = { mainViewModel.saveProductNote(it) },
+                            onOpenAiWithProduct = { product ->
+                                studioSelectedProduct = product
+                                currentTab = AppTab.STUDIO
+                            }
                         )
 
                         AppTab.FOLLOW_UPS -> FollowUpsScreen(

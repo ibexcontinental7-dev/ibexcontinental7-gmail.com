@@ -6,6 +6,7 @@ import com.example.data.OperationType
 import com.example.data.handleFirestoreError
 import com.example.data.model.ContactChannel
 import com.example.data.model.ContactHistoryEntry
+import com.example.data.model.GmMonthlyTarget
 import com.example.data.model.Lead
 import com.example.data.model.LeadStatus
 import com.example.data.model.ProductVerificationNote
@@ -358,6 +359,75 @@ class TakafulRepository(
             throw e
         } catch (e: Exception) {
             handleFirestoreError(e, OperationType.DELETE, docRef.path, auth)
+            Result.failure(e)
+        }
+    }
+
+    fun observeMonthlyTarget(userId: String, defaultMonth: String): Flow<GmMonthlyTarget> = flow {
+        val path = "users/$userId/gmSettings/monthly_targets"
+        emitAll(
+            db.collection("users")
+                .document(userId)
+                .collection("gmSettings")
+                .document("monthly_targets")
+                .snapshots()
+                .map { snapshot ->
+                    snapshot.toObject(
+                        GmMonthlyTarget::class.java,
+                        DocumentSnapshot.ServerTimestampBehavior.ESTIMATE
+                    ) ?: GmMonthlyTarget(
+                        id = "monthly_targets",
+                        userId = userId,
+                        targetMonth = defaultMonth
+                    )
+                }
+                .catch { error ->
+                    logStreamErrorIfActive(error, OperationType.GET, path, userId)
+                    throw error
+                }
+        )
+    }
+
+    suspend fun saveMonthlyTarget(target: GmMonthlyTarget): Result<Unit> {
+        val uid = requireUserId()
+        val docRef = db.collection("users")
+            .document(uid)
+            .collection("gmSettings")
+            .document("monthly_targets")
+
+        val safeSales = target.salesTarget.coerceIn(1L, 10_000L)
+        val safeOutreach = target.outreachTarget.coerceIn(1L, 10_000L)
+        val safeReferral = target.referralTarget.coerceIn(1L, 10_000L)
+        val safeMonth = target.targetMonth.trim().ifBlank { "2026-11" }
+
+        return try {
+            val existing = docRef.get().await()
+            if (existing.exists()) {
+                val updatePayload = mapOf(
+                    "targetMonth" to safeMonth,
+                    "salesTarget" to safeSales,
+                    "outreachTarget" to safeOutreach,
+                    "referralTarget" to safeReferral,
+                    "updatedAt" to FieldValue.serverTimestamp()
+                )
+                docRef.update(updatePayload).await()
+            } else {
+                val createPayload = mapOf(
+                    "userId" to uid,
+                    "targetMonth" to safeMonth,
+                    "salesTarget" to safeSales,
+                    "outreachTarget" to safeOutreach,
+                    "referralTarget" to safeReferral,
+                    "createdAt" to FieldValue.serverTimestamp(),
+                    "updatedAt" to FieldValue.serverTimestamp()
+                )
+                docRef.set(createPayload).await()
+            }
+            Result.success(Unit)
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            handleFirestoreError(e, OperationType.WRITE, docRef.path, auth)
             Result.failure(e)
         }
     }

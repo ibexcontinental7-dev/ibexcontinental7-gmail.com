@@ -2,6 +2,7 @@ package com.example.data.repository
 
 import com.example.base.FirestoreEmulatorTestBase
 import com.example.data.model.ContactChannel
+import com.example.data.model.GmMonthlyTarget
 import com.example.data.model.Lead
 import com.example.data.model.LeadPermissionStatus
 import com.example.data.model.LeadStatus
@@ -271,6 +272,56 @@ class TakafulRepositoryRuleTest : FirestoreEmulatorTestBase() {
         signInTestUser(ALICE_EMAIL)
         val deleteResult = withTimeout(DEFAULT_TIMEOUT_MS) { aliceRepo.deleteProspect(prospectId) }
         assertTrue("Expected deleteProspect success: ${deleteResult.exceptionOrNull()}", deleteResult.isSuccess)
+    }
+
+    @Test
+    fun observeAndSaveMonthlyTarget_enforcesOwnerIsolation() = runBlocking {
+        val aliceUid = signInTestUser(ALICE_EMAIL)
+        val aliceRepo = TakafulRepository(firestore, auth)
+
+        val createResult = withTimeout(DEFAULT_TIMEOUT_MS) {
+            aliceRepo.saveMonthlyTarget(
+                GmMonthlyTarget(
+                    userId = aliceUid,
+                    targetMonth = "2026-11",
+                    salesTarget = 8L,
+                    outreachTarget = 40L,
+                    referralTarget = 12L
+                )
+            )
+        }
+        assertTrue("Expected initial saveMonthlyTarget success: ${createResult.exceptionOrNull()}", createResult.isSuccess)
+
+        val observed = withTimeout(FLOW_TIMEOUT_MS) {
+            aliceRepo.observeMonthlyTarget(aliceUid, "2026-11").first { it.salesTarget == 8L }
+        }
+        assertEquals(40L, observed.outreachTarget)
+        assertEquals(12L, observed.referralTarget)
+
+        val updateResult = withTimeout(DEFAULT_TIMEOUT_MS) {
+            aliceRepo.saveMonthlyTarget(observed.copy(salesTarget = 10L))
+        }
+        assertTrue("Expected update saveMonthlyTarget success: ${updateResult.exceptionOrNull()}", updateResult.isSuccess)
+
+        val updated = withTimeout(FLOW_TIMEOUT_MS) {
+            aliceRepo.observeMonthlyTarget(aliceUid, "2026-11").first { it.salesTarget == 10L }
+        }
+        assertEquals(10L, updated.salesTarget)
+
+        // Cross-user read on gmSettings/monthly_targets fails with PERMISSION_DENIED
+        signInTestUser(BOB_EMAIL)
+        try {
+            withTimeout(DEFAULT_TIMEOUT_MS) {
+                firestore.collection("users").document(aliceUid)
+                    .collection("gmSettings").document("monthly_targets")
+                    .get().await()
+            }
+            fail("Expected PERMISSION_DENIED for cross-user monthly_targets read")
+        } catch (e: Exception) {
+            val fsException = e.unwrapFirestoreException()
+            assertNotNull("Expected FirebaseFirestoreException, got $e", fsException)
+            assertEquals(FirebaseFirestoreException.Code.PERMISSION_DENIED, fsException!!.code)
+        }
     }
 
     private companion object {

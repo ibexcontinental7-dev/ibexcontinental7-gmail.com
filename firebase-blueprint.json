@@ -194,6 +194,44 @@
         }
       },
       "required": ["userId", "name", "contact", "status", "createdAt", "updatedAt"]
+    },
+    "GmMonthlyTarget": {
+      "title": "GmMonthlyTarget",
+      "description": "Monthly sales, outreach, and warm referral targets configured by the General Manager.",
+      "type": "object",
+      "properties": {
+        "userId": {
+          "type": "string",
+          "description": "Authenticated owner UID."
+        },
+        "targetMonth": {
+          "type": "string",
+          "description": "Target month in YYYY-MM format."
+        },
+        "salesTarget": {
+          "type": "integer",
+          "description": "Monthly completed sales target."
+        },
+        "outreachTarget": {
+          "type": "integer",
+          "description": "Monthly contacted/meetings target."
+        },
+        "referralTarget": {
+          "type": "integer",
+          "description": "Monthly warm referral target."
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server timestamp set via FieldValue.serverTimestamp()."
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server timestamp set via FieldValue.serverTimestamp()."
+        }
+      },
+      "required": ["userId", "targetMonth", "salesTarget", "outreachTarget", "referralTarget", "createdAt", "updatedAt"]
     }
   },
   "firestore": {
@@ -212,6 +250,10 @@
     "/prospects/{prospectId}": {
       "schema": { "$ref": "#/entities/Prospect" },
       "description": "User-isolated prospects saved from the Add New Prospect screen."
+    },
+    "/users/{userId}/gmSettings/{settingId}": {
+      "schema": { "$ref": "#/entities/GmMonthlyTarget" },
+      "description": "User-isolated monthly GM sales, outreach, and referral targets."
     }
   }
 }

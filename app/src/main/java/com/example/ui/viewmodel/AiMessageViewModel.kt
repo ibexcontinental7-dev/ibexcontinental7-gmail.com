@@ -17,6 +17,39 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withTimeout
 
+enum class StudioMode(val labelEn: String, val labelUr: String) {
+    OUTREACH_DRAFT("Outreach Draft", "تعارفی پیغام"),
+    OBJECTION_HANDLER("Objection & Meeting Prep", "اعتراضات و میٹنگ تیاری")
+}
+
+enum class ObjectionPreset(val labelEn: String, val labelUr: String, val promptTopic: String) {
+    TRUST_SHARIAH(
+        "Shariah / Halal Trust",
+        "شرعی و حلال تصدیق",
+        "Client asks whether Family Takaful is genuinely Shariah-compliant and different from conventional insurance."
+    ),
+    EXISTING_SAVINGS(
+        "Already Have Bank / Insurance",
+        "پہلے سے بینک یا بیمہ موجود ہے",
+        "Client says they already have bank savings, real estate plots, or conventional insurance and don't see why they need Takaful."
+    ),
+    INFLATION_COST(
+        "Inflation / Monthly Budget",
+        "مہنگائی اور ماہانہ بجٹ",
+        "Client worries that committing to a long-term plan is tough during high inflation in Pakistan."
+    ),
+    LIQUIDITY_CONCERN(
+        "Need Cash / Flexibility",
+        "جلد رقم کی ضرورت یا لچک",
+        "Client asks about early access / liquidity concerns without committing to unverified figures."
+    ),
+    MEETING_PREP_AGENDA(
+        "15-Min Meeting Agenda",
+        "15 منٹ میٹنگ تیاری",
+        "Prepare a crisp 15-minute face-to-face GM executive meeting talking points & discovery questions for this prospect."
+    )
+}
+
 enum class MessageFormat(val labelEn: String, val labelUr: String) {
     WHATSAPP_SHORT("Short WhatsApp Message", "مختصر واٹس ایپ پیغام"),
     PROFESSIONAL_INTRO("Professional Introduction", "پروفیشنل تعارف"),
@@ -174,6 +207,90 @@ class AiMessageViewModel : ViewModel() {
             } catch (e: Exception) {
                 Log.e(TAG, "Firebase AI generation failed", e)
                 _draftState.value = AiDraftState.Error(e.localizedMessage ?: "Failed to generate message with Gemini AI.")
+            }
+        }
+    }
+
+    fun generateObjectionResponse(
+        lead: Lead?,
+        customName: String,
+        customCompany: String,
+        customDesignation: String,
+        customIndustry: String,
+        customCity: String,
+        preset: ObjectionPreset,
+        customObjection: String,
+        language: MessageLanguage,
+        product: OfficialTakafulProduct?
+    ) {
+        val targetName = lead?.name?.takeIf { it.isNotBlank() } ?: customName.trim().ifBlank { "Respected Client" }
+        val targetCompany = lead?.company?.takeIf { it.isNotBlank() } ?: customCompany.trim()
+        val targetDesignation = lead?.designation?.takeIf { it.isNotBlank() } ?: customDesignation.trim()
+        val targetIndustry = lead?.industry?.takeIf { it.isNotBlank() } ?: customIndustry.trim()
+        val targetCity = lead?.city?.takeIf { it.isNotBlank() } ?: customCity.trim().ifBlank { OwnerProfile.DEFAULT_MARKET_CITY }
+
+        val productLine = if (product != null) {
+            "Referenced Official Plan: ${product.nameEn} (${product.nameUr}). Do NOT invent profit rates, guaranteed returns, contribution tables, or policy exclusions—advise verifying official brochure terms at ${OwnerProfile.OFFICIAL_TAKAFUL_URL}."
+        } else {
+            "Keep product discussion at general Askari Family Takaful advisory level without inventing unverified returns or terms."
+        }
+
+        val languageInstruction = when (language) {
+            MessageLanguage.URDU -> "Write in dignified, persuasive Pakistani business Urdu script (اردو)."
+            MessageLanguage.ENGLISH -> "Write in polished, empathetic Pakistani corporate English."
+            MessageLanguage.BILINGUAL -> "Provide crisp Urdu (اردو) talking points & WhatsApp reply first, followed by '---', and then concise English."
+        }
+
+        val prompt = """
+            Prepare a respectful GM executive response and talking points for a client objection / meeting prep:
+            - Prospect: $targetName (${targetDesignation.ifBlank { "Decision Maker" }})
+            - Organization: ${targetCompany.ifBlank { "Not specified" }} (${targetIndustry.ifBlank { "Business" }}, $targetCity)
+            - Objection / Prep Scenario: ${preset.labelEn} — ${preset.promptTopic}
+            - Specific Client Question / Notes: ${customObjection.trim().ifBlank { "Use the standard executive objection scenario above." }}
+
+            Requirements:
+            1. Start with 2-3 brief verbal talking points for the GM to use on a phone call or in a meeting.
+            2. Follow with a ready-to-send polite follow-up reply (WhatsApp-friendly) that includes the mandatory GM signature.
+            3. STRICTLY DO NOT fabricate profit percentages, return figures, surrender values, or guaranteed payouts.
+            4. Language: $languageInstruction
+            5. Product Guidance: $productLine
+
+            Mandatory Sender Signature:
+            ${OwnerProfile.DESIGNATION_EN} (${OwnerProfile.DESIGNATION_UR})
+            ${OwnerProfile.COMPANY_EN} (${OwnerProfile.COMPANY_UR})
+            WhatsApp: ${OwnerProfile.WHATSAPP_NUMBER}
+        """.trimIndent()
+
+        viewModelScope.launch {
+            _isApproved.value = false
+            _draftState.value = AiDraftState.Loading
+            val accumulated = StringBuilder()
+            try {
+                withTimeout(60_000L) {
+                    model.generateContentStream(prompt).collect { chunk ->
+                        val part = chunk.text.orEmpty()
+                        accumulated.append(part)
+                        val currentText = accumulated.toString()
+                        _draftState.value = AiDraftState.Streaming(currentText)
+                        _editableBody.value = currentText
+                    }
+                }
+                val finalText = accumulated.toString().trim()
+                if (finalText.isBlank()) {
+                    _draftState.value = AiDraftState.Error("Gemini returned an empty response. Please try again.")
+                    return@launch
+                }
+                _editableSubject.value = ""
+                _editableBody.value = finalText
+                _draftState.value = AiDraftState.Success("", finalText)
+            } catch (e: TimeoutCancellationException) {
+                Log.e(TAG, "Gemini objection prep timed out", e)
+                _draftState.value = AiDraftState.Error("AI generation timed out after 60 seconds. Please try again.")
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                Log.e(TAG, "Firebase AI objection prep failed", e)
+                _draftState.value = AiDraftState.Error(e.localizedMessage ?: "Failed to generate objection response.")
             }
         }
     }

@@ -1,9 +1,16 @@
 package com.example.ui.screens
 
+import android.Manifest
+import android.os.Build
+import android.widget.Toast
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -22,6 +29,7 @@ import androidx.compose.material.icons.filled.AddAlert
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Event
 import androidx.compose.material.icons.filled.History
+import androidx.compose.material.icons.filled.NotificationsActive
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
@@ -33,6 +41,7 @@ import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ExposedDropdownMenuBox
 import androidx.compose.material3.ExposedDropdownMenuDefaults
+import androidx.compose.material3.FilterChip
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
@@ -40,12 +49,14 @@ import androidx.compose.material3.MenuAnchorType
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
+import androidx.compose.material3.Switch
 import androidx.compose.material3.Tab
 import androidx.compose.material3.TabRow
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.rememberDatePickerState
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
@@ -62,6 +73,7 @@ import com.example.data.model.ContactChannel
 import com.example.data.model.ContactHistoryEntry
 import com.example.data.model.Lead
 import com.example.data.model.LeadStatus
+import com.example.notifications.FollowUpReminderScheduler
 import com.example.ui.localization.AppLanguage
 import com.example.ui.localization.UiStrings
 import com.example.ui.theme.AmberSurface
@@ -119,6 +131,34 @@ fun FollowUpsScreen(
         else -> completedList
     }
 
+    val isUrdu = language == AppLanguage.URDU
+    LaunchedEffect(dueList.size, isUrdu) {
+        FollowUpReminderScheduler.updateDueCount(context, dueList.size, isUrdu)
+    }
+
+    var reminderEnabled by remember { mutableStateOf(FollowUpReminderScheduler.isEnabled(context)) }
+    var reminderHour by remember { mutableIntStateOf(FollowUpReminderScheduler.getReminderHour(context)) }
+    var permissionDeniedHint by remember { mutableStateOf(false) }
+
+    val notificationPermissionLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.RequestPermission()
+    ) { granted ->
+        if (granted) {
+            permissionDeniedHint = false
+            reminderEnabled = true
+            FollowUpReminderScheduler.scheduleDailyMorningReminder(
+                context = context,
+                hourOfDay = reminderHour,
+                dueCount = dueList.size,
+                isUrdu = isUrdu
+            )
+            Toast.makeText(context, "Daily morning reminder scheduled.", Toast.LENGTH_SHORT).show()
+        } else {
+            reminderEnabled = false
+            permissionDeniedHint = true
+        }
+    }
+
     Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.TopCenter) {
         Column(
             modifier = Modifier
@@ -129,6 +169,59 @@ fun FollowUpsScreen(
                 text = strings.followUpsTitle,
                 style = MaterialTheme.typography.headlineMedium,
                 modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp)
+            )
+
+            DailyMorningReminderCard(
+                strings = strings,
+                enabled = reminderEnabled,
+                selectedHour = reminderHour,
+                showPermissionHint = permissionDeniedHint,
+                onToggleEnabled = { checked ->
+                    if (!checked) {
+                        reminderEnabled = false
+                        FollowUpReminderScheduler.cancelDailyReminder(context)
+                    } else if (
+                        Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
+                        !FollowUpReminderScheduler.hasNotificationPermission(context)
+                    ) {
+                        notificationPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
+                    } else {
+                        permissionDeniedHint = false
+                        reminderEnabled = true
+                        FollowUpReminderScheduler.scheduleDailyMorningReminder(
+                            context = context,
+                            hourOfDay = reminderHour,
+                            dueCount = dueList.size,
+                            isUrdu = isUrdu
+                        )
+                    }
+                },
+                onSelectHour = { hr ->
+                    reminderHour = hr
+                    if (reminderEnabled && FollowUpReminderScheduler.hasNotificationPermission(context)) {
+                        FollowUpReminderScheduler.scheduleDailyMorningReminder(
+                            context = context,
+                            hourOfDay = hr,
+                            dueCount = dueList.size,
+                            isUrdu = isUrdu
+                        )
+                    }
+                },
+                onTestNotification = {
+                    if (
+                        Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
+                        !FollowUpReminderScheduler.hasNotificationPermission(context)
+                    ) {
+                        notificationPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
+                    } else {
+                        val shown = FollowUpReminderScheduler.showDailyFollowUpNotification(
+                            context = context,
+                            overrideDueCount = dueList.size,
+                            overrideIsUrdu = isUrdu
+                        )
+                        if (!shown) permissionDeniedHint = true
+                    }
+                }
             )
 
             TabRow(selectedTabIndex = selectedTab) {
@@ -215,6 +308,93 @@ fun FollowUpsScreen(
                 activeStatusLead = null
             }
         )
+    }
+}
+
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+private fun DailyMorningReminderCard(
+    strings: UiStrings,
+    enabled: Boolean,
+    selectedHour: Int,
+    showPermissionHint: Boolean,
+    onToggleEnabled: (Boolean) -> Unit,
+    onSelectHour: (Int) -> Unit,
+    onTestNotification: () -> Unit
+) {
+    Card(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 16.dp, vertical = 4.dp)
+            .testTag("morning_reminder_card"),
+        shape = RoundedCornerShape(16.dp),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.4f))
+    ) {
+        Column(modifier = Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Row(modifier = Modifier.weight(1f), verticalAlignment = Alignment.CenterVertically) {
+                    Icon(
+                        imageVector = Icons.Filled.NotificationsActive,
+                        contentDescription = null,
+                        tint = if (enabled) EmeraldSuccess else Navy900,
+                        modifier = Modifier.size(20.dp)
+                    )
+                    Spacer(Modifier.width(8.dp))
+                    Column {
+                        Text(
+                            text = strings.morningAlertTitle,
+                            style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Bold)
+                        )
+                        Text(
+                            text = strings.morningAlertSubtitle,
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                }
+                Switch(
+                    checked = enabled,
+                    onCheckedChange = onToggleEnabled,
+                    modifier = Modifier.testTag("morning_reminder_switch")
+                )
+            }
+
+            if (showPermissionHint) {
+                Surface(color = AmberSurface, shape = RoundedCornerShape(8.dp), modifier = Modifier.fillMaxWidth()) {
+                    Text(
+                        text = strings.permissionNeededHint,
+                        style = MaterialTheme.typography.labelSmall,
+                        color = AmberWarning,
+                        modifier = Modifier.padding(8.dp)
+                    )
+                }
+            }
+
+            FlowRow(
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalArrangement = Arrangement.spacedBy(6.dp)
+            ) {
+                listOf(8 to "08:00 AM", 9 to "09:00 AM", 10 to "10:00 AM").forEach { (hour, label) ->
+                    FilterChip(
+                        selected = selectedHour == hour,
+                        onClick = { onSelectHour(hour) },
+                        label = { Text(label) }
+                    )
+                }
+                OutlinedButton(
+                    onClick = onTestNotification,
+                    shape = RoundedCornerShape(10.dp),
+                    modifier = Modifier.testTag("test_notification_button")
+                ) {
+                    Text(strings.testNotificationButton, style = MaterialTheme.typography.labelMedium)
+                }
+            }
+        }
     }
 }
 

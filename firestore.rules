@@ -92,6 +92,16 @@ service cloud.firestore {
              data.updatedAt is timestamp;
     }
 
+    function isValidMonthlyTarget(data, userId) {
+      return data.userId is string && data.userId == userId &&
+             data.targetMonth is string && data.targetMonth.size() >= 6 && data.targetMonth.size() <= 20 &&
+             data.salesTarget is int && data.salesTarget >= 1 && data.salesTarget <= 10000 &&
+             data.outreachTarget is int && data.outreachTarget >= 1 && data.outreachTarget <= 10000 &&
+             data.referralTarget is int && data.referralTarget >= 1 && data.referralTarget <= 10000 &&
+             data.createdAt is timestamp &&
+             data.updatedAt is timestamp;
+    }
+
     match /users/{userId}/leads/{leadId} {
       allow get: if isOwner(userId) && isValidId(leadId);
       allow list: if isOwner(userId);
@@ -198,6 +208,29 @@ service cloud.firestore {
                        isValidProspect(incoming());
 
       allow delete: if isSignedIn() && isValidId(prospectId) && existing().userId == request.auth.uid;
+    }
+
+    match /users/{userId}/gmSettings/{settingId} {
+      allow get: if isOwner(userId) && settingId == 'monthly_targets';
+      allow list: if isOwner(userId);
+
+      allow create: if isOwner(userId) &&
+                       settingId == 'monthly_targets' &&
+                       incoming().keys().hasAll(['userId', 'targetMonth', 'salesTarget', 'outreachTarget', 'referralTarget', 'createdAt', 'updatedAt']) &&
+                       incoming().keys().hasOnly(['userId', 'targetMonth', 'salesTarget', 'outreachTarget', 'referralTarget', 'createdAt', 'updatedAt']) &&
+                       incoming().createdAt <= request.time &&
+                       incoming().updatedAt <= request.time &&
+                       isValidMonthlyTarget(incoming(), userId);
+
+      allow update: if isOwner(userId) &&
+                       settingId == 'monthly_targets' &&
+                       isValidMonthlyTarget(incoming(), userId) &&
+                       incoming().userId == existing().userId &&
+                       incoming().createdAt == existing().createdAt &&
+                       incoming().updatedAt <= request.time &&
+                       incoming().diff(existing()).affectedKeys().hasOnly(['targetMonth', 'salesTarget', 'outreachTarget', 'referralTarget', 'updatedAt']);
+
+      allow delete: if isOwner(userId) && settingId == 'monthly_targets';
     }
   }
 }

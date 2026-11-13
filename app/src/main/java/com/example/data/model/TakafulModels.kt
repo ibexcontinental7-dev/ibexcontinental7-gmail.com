@@ -105,6 +105,18 @@ data class ProductVerificationNote(
     @ServerTimestamp val updatedAt: Timestamp? = null
 )
 
+@IgnoreExtraProperties
+data class GmMonthlyTarget(
+    @DocumentId val id: String = "monthly_targets",
+    val userId: String = "",
+    val targetMonth: String = "",
+    val salesTarget: Long = 5L,
+    val outreachTarget: Long = 25L,
+    val referralTarget: Long = 10L,
+    @ServerTimestamp val createdAt: Timestamp? = null,
+    @ServerTimestamp val updatedAt: Timestamp? = null
+)
+
 data class OfficialTakafulProduct(
     val id: String,
     val nameEn: String,

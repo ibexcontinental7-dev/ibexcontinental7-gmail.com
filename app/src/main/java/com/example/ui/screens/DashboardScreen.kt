@@ -56,6 +56,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.example.R
+import com.example.data.model.GmMonthlyTarget
 import com.example.data.model.Lead
 import com.example.data.model.LeadStatus
 import com.example.data.model.OwnerProfile
@@ -85,6 +86,8 @@ fun DashboardScreen(
     language: AppLanguage,
     metrics: DashboardMetrics,
     leadsState: UiState<List<Lead>>,
+    monthlyTargetState: UiState<GmMonthlyTarget> = UiState.Loading,
+    onSaveMonthlyTarget: (sales: Long, outreach: Long, referrals: Long, month: String) -> Unit = { _, _, _, _ -> },
     onNavigateToLeads: (LeadStatus?) -> Unit,
     onNavigateToSearch: () -> Unit,
     onNavigateToStudio: (Lead?) -> Unit,
@@ -128,6 +131,16 @@ fun DashboardScreen(
                             onNavigateToLeads(targetStatus)
                         }
                     }
+                )
+            }
+
+            item {
+                MonthlyTargetSection(
+                    strings = strings,
+                    language = language,
+                    metrics = metrics,
+                    targetState = monthlyTargetState,
+                    onSaveTargets = onSaveMonthlyTarget
                 )
             }
 

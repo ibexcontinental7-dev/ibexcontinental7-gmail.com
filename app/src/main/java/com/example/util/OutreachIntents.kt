@@ -102,6 +102,39 @@ object OutreachIntents {
         }
     }
 
+    fun dialPhone(context: Context, rawPhone: String) {
+        val cleaned = extractPhoneOrNull(rawPhone) ?: rawPhone.filter { it.isDigit() || it == '+' }
+        if (cleaned.isBlank()) {
+            Toast.makeText(context, "No valid phone number provided.", Toast.LENGTH_SHORT).show()
+            return
+        }
+        try {
+            val intent = Intent(Intent.ACTION_DIAL, Uri.parse("tel:$cleaned"))
+            context.startActivity(intent)
+        } catch (e: Exception) {
+            Toast.makeText(context, "Unable to open phone dialer.", Toast.LENGTH_SHORT).show()
+        }
+    }
+
+    fun extractPhoneOrNull(contact: String): String? {
+        val trimmed = contact.trim()
+        if (trimmed.isBlank()) return null
+        // Check comma / pipe / space separated tokens for a phone-like sequence
+        val phoneCandidate = Regex("\\+?[0-9][0-9\\s\\-()]{6,}[0-9]")
+            .find(trimmed)
+            ?.value
+            ?.filter { it.isDigit() || it == '+' }
+        return phoneCandidate?.takeIf { it.count(Char::isDigit) >= 7 }
+    }
+
+    fun extractEmailOrNull(contact: String): String? {
+        val trimmed = contact.trim()
+        if (trimmed.isBlank()) return null
+        return Regex("[A-Za-z0-9._%+\\-]+@[A-Za-z0-9.\\-]+\\.[A-Za-z]{2,}")
+            .find(trimmed)
+            ?.value
+    }
+
     fun copyToClipboard(context: Context, label: String, text: String) {
         val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
         clipboard.setPrimaryClip(ClipData.newPlainText(label, text))

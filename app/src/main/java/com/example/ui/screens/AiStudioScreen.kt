@@ -45,15 +45,14 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
-import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.example.data.model.ContactChannel
@@ -64,12 +63,8 @@ import com.example.data.model.OfficialTakafulProduct
 import com.example.data.model.OwnerProfile
 import com.example.ui.localization.AppLanguage
 import com.example.ui.localization.UiStrings
-import com.example.ui.theme.AmberSurface
-import com.example.ui.theme.AmberWarning
 import com.example.ui.theme.CrimsonError
 import com.example.ui.theme.CrimsonSurface
-import com.example.ui.theme.EmeraldSuccess
-import com.example.ui.theme.EmeraldSurface
 import com.example.ui.theme.Gold400
 import com.example.ui.theme.Navy900
 import com.example.ui.theme.PureWhite
@@ -77,8 +72,9 @@ import com.example.ui.viewmodel.AiDraftState
 import com.example.ui.viewmodel.AiMessageViewModel
 import com.example.ui.viewmodel.MessageFormat
 import com.example.ui.viewmodel.MessageLanguage
+import com.example.ui.viewmodel.ObjectionPreset
+import com.example.ui.viewmodel.StudioMode
 import com.example.ui.viewmodel.UiState
-import com.example.util.OutreachIntents
 
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
 @Composable
@@ -87,10 +83,11 @@ fun AiStudioScreen(
     language: AppLanguage,
     leadsState: UiState<List<Lead>>,
     preselectedLead: Lead?,
+    preselectedProduct: OfficialTakafulProduct? = null,
+    onConsumePreselectedProduct: () -> Unit = {},
     aiViewModel: AiMessageViewModel,
     onLogOutreach: (leadId: String, channel: ContactChannel, summary: String) -> Unit
 ) {
-    val context = LocalContext.current
     val allLeads = (leadsState as? UiState.Success)?.data.orEmpty()
 
     var selectedLead by remember(preselectedLead) { mutableStateOf(preselectedLead) }
@@ -102,13 +99,22 @@ fun AiStudioScreen(
     var customIndustry by remember { mutableStateOf("") }
     var customCity by remember { mutableStateOf(OwnerProfile.DEFAULT_MARKET_CITY) }
 
+    var studioMode by remember { mutableStateOf(StudioMode.OUTREACH_DRAFT) }
     var selectedFormat by remember { mutableStateOf(MessageFormat.WHATSAPP_SHORT) }
+    var selectedObjection by remember { mutableStateOf(ObjectionPreset.TRUST_SHARIAH) }
     var selectedMessageLanguage by remember {
         mutableStateOf(if (language == AppLanguage.URDU) MessageLanguage.URDU else MessageLanguage.ENGLISH)
     }
-    var selectedProduct by remember { mutableStateOf<OfficialTakafulProduct?>(null) }
+    var selectedProduct by remember { mutableStateOf<OfficialTakafulProduct?>(preselectedProduct) }
     var extraContext by remember { mutableStateOf("") }
     var logToHistoryChecked by remember { mutableStateOf(true) }
+
+    LaunchedEffect(preselectedProduct) {
+        if (preselectedProduct != null) {
+            selectedProduct = preselectedProduct
+            onConsumePreselectedProduct()
+        }
+    }
 
     val draftState by aiViewModel.draftState.collectAsStateWithLifecycle()
     val editableSubject by aiViewModel.editableSubject.collectAsStateWithLifecycle()
@@ -265,17 +271,49 @@ fun AiStudioScreen(
                             )
                         }
 
-                        Text(text = strings.messageTypeLabel, style = MaterialTheme.typography.titleSmall)
+                        Text(text = strings.studioModeLabel, style = MaterialTheme.typography.titleSmall)
                         FlowRow(
                             horizontalArrangement = Arrangement.spacedBy(8.dp),
                             verticalArrangement = Arrangement.spacedBy(6.dp)
                         ) {
-                            MessageFormat.entries.forEach { fmt ->
+                            StudioMode.entries.forEach { mode ->
                                 FilterChip(
-                                    selected = selectedFormat == fmt,
-                                    onClick = { selectedFormat = fmt },
-                                    label = { Text(if (language == AppLanguage.URDU) fmt.labelUr else fmt.labelEn) }
+                                    selected = studioMode == mode,
+                                    onClick = { studioMode = mode },
+                                    label = { Text(if (language == AppLanguage.URDU) mode.labelUr else mode.labelEn) },
+                                    modifier = Modifier.testTag("studio_mode_${mode.name.lowercase()}")
                                 )
+                            }
+                        }
+
+                        if (studioMode == StudioMode.OUTREACH_DRAFT) {
+                            Text(text = strings.messageTypeLabel, style = MaterialTheme.typography.titleSmall)
+                            FlowRow(
+                                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                verticalArrangement = Arrangement.spacedBy(6.dp)
+                            ) {
+                                MessageFormat.entries.forEach { fmt ->
+                                    FilterChip(
+                                        selected = selectedFormat == fmt,
+                                        onClick = { selectedFormat = fmt },
+                                        label = { Text(if (language == AppLanguage.URDU) fmt.labelUr else fmt.labelEn) }
+                                    )
+                                }
+                            }
+                        } else {
+                            Text(text = strings.objectionPresetLabel, style = MaterialTheme.typography.titleSmall)
+                            FlowRow(
+                                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                verticalArrangement = Arrangement.spacedBy(6.dp)
+                            ) {
+                                ObjectionPreset.entries.forEach { preset ->
+                                    FilterChip(
+                                        selected = selectedObjection == preset,
+                                        onClick = { selectedObjection = preset },
+                                        label = { Text(if (language == AppLanguage.URDU) preset.labelUr else preset.labelEn) },
+                                        modifier = Modifier.testTag("objection_preset_${preset.name.lowercase()}")
+                                    )
+                                }
                             }
                         }
 
@@ -315,25 +353,45 @@ fun AiStudioScreen(
                         OutlinedTextField(
                             value = extraContext,
                             onValueChange = { extraContext = it },
-                            label = { Text(strings.extraContextLabel) },
+                            label = {
+                                Text(
+                                    if (studioMode == StudioMode.OUTREACH_DRAFT) strings.extraContextLabel
+                                    else strings.objectionCustomLabel
+                                )
+                            },
                             minLines = 2,
                             modifier = Modifier.fillMaxWidth().testTag("studio_context_input")
                         )
 
                         Button(
                             onClick = {
-                                aiViewModel.generateDraft(
-                                    lead = selectedLead,
-                                    customName = customName,
-                                    customCompany = customCompany,
-                                    customDesignation = customDesignation,
-                                    customIndustry = customIndustry,
-                                    customCity = customCity,
-                                    format = selectedFormat,
-                                    language = selectedMessageLanguage,
-                                    product = selectedProduct,
-                                    extraContext = extraContext
-                                )
+                                if (studioMode == StudioMode.OUTREACH_DRAFT) {
+                                    aiViewModel.generateDraft(
+                                        lead = selectedLead,
+                                        customName = customName,
+                                        customCompany = customCompany,
+                                        customDesignation = customDesignation,
+                                        customIndustry = customIndustry,
+                                        customCity = customCity,
+                                        format = selectedFormat,
+                                        language = selectedMessageLanguage,
+                                        product = selectedProduct,
+                                        extraContext = extraContext
+                                    )
+                                } else {
+                                    aiViewModel.generateObjectionResponse(
+                                        lead = selectedLead,
+                                        customName = customName,
+                                        customCompany = customCompany,
+                                        customDesignation = customDesignation,
+                                        customIndustry = customIndustry,
+                                        customCity = customCity,
+                                        preset = selectedObjection,
+                                        customObjection = extraContext,
+                                        language = selectedMessageLanguage,
+                                        product = selectedProduct
+                                    )
+                                }
                             },
                             enabled = draftState !is AiDraftState.Loading && draftState !is AiDraftState.Streaming,
                             modifier = Modifier
@@ -354,7 +412,10 @@ fun AiStudioScreen(
                             } else {
                                 Icon(Icons.Filled.AutoAwesome, contentDescription = null, tint = Gold400, modifier = Modifier.size(18.dp))
                                 Spacer(Modifier.width(8.dp))
-                                Text(strings.generateWithGemini)
+                                Text(
+                                    if (studioMode == StudioMode.OUTREACH_DRAFT) strings.generateWithGemini
+                                    else strings.generateObjectionResponse
+                                )
                             }
                         }
                     }
@@ -380,148 +441,22 @@ fun AiStudioScreen(
 
             if (editableBody.isNotBlank() || draftState is AiDraftState.Success || draftState is AiDraftState.Streaming) {
                 item {
-                    Card(
-                        modifier = Modifier.fillMaxWidth(),
-                        shape = RoundedCornerShape(18.dp),
-                        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-                        border = BorderStroke(
-                            1.5.dp,
-                            if (isApproved) EmeraldSuccess else AmberWarning
-                        )
-                    ) {
-                        Column(
-                            modifier = Modifier.padding(16.dp),
-                            verticalArrangement = Arrangement.spacedBy(12.dp)
-                        ) {
-                            Row(verticalAlignment = Alignment.CenterVertically) {
-                                Icon(
-                                    imageVector = if (isApproved) Icons.Filled.CheckCircle else Icons.Filled.Warning,
-                                    contentDescription = null,
-                                    tint = if (isApproved) EmeraldSuccess else AmberWarning
-                                )
-                                Spacer(Modifier.width(8.dp))
-                                Text(
-                                    text = strings.approvalGateTitle,
-                                    style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold)
-                                )
-                            }
-
-                            if (selectedFormat == MessageFormat.EMAIL_DRAFT || editableSubject.isNotBlank()) {
-                                OutlinedTextField(
-                                    value = editableSubject,
-                                    onValueChange = { aiViewModel.updateSubject(it) },
-                                    label = { Text(strings.emailSubjectLabel) },
-                                    singleLine = true,
-                                    modifier = Modifier.fillMaxWidth()
-                                )
-                            }
-
-                            OutlinedTextField(
-                                value = editableBody,
-                                onValueChange = { aiViewModel.updateBody(it) },
-                                label = { Text(strings.draftEditorLabel) },
-                                minLines = 6,
-                                modifier = Modifier.fillMaxWidth().testTag("studio_draft_editor")
-                            )
-
-                            Surface(
-                                color = if (isApproved) EmeraldSurface else AmberSurface,
-                                shape = RoundedCornerShape(12.dp),
-                                modifier = Modifier.fillMaxWidth()
-                            ) {
-                                Row(
-                                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 6.dp),
-                                    verticalAlignment = Alignment.CenterVertically
-                                ) {
-                                    Checkbox(
-                                        checked = isApproved,
-                                        onCheckedChange = { aiViewModel.setApproved(it) },
-                                        modifier = Modifier.testTag("studio_approve_checkbox")
-                                    )
-                                    Text(
-                                        text = if (isApproved) strings.approvalCheckboxLabel else strings.approvalRequiredWarning,
-                                        style = MaterialTheme.typography.bodySmall,
-                                        color = if (isApproved) EmeraldSuccess else AmberWarning
-                                    )
-                                }
-                            }
-
-                            if (selectedLead != null) {
-                                Row(verticalAlignment = Alignment.CenterVertically) {
-                                    Checkbox(
-                                        checked = logToHistoryChecked,
-                                        onCheckedChange = { logToHistoryChecked = it }
-                                    )
-                                    Text(
-                                        text = strings.logToHistoryCheck,
-                                        style = MaterialTheme.typography.bodySmall
-                                    )
-                                }
-                            }
-
-                            Row(
-                                modifier = Modifier.fillMaxWidth(),
-                                horizontalArrangement = Arrangement.spacedBy(8.dp)
-                            ) {
-                                Button(
-                                    onClick = {
-                                        val lead = selectedLead
-                                        if (lead != null && logToHistoryChecked) {
-                                            onLogOutreach(lead.id, ContactChannel.WHATSAPP, editableBody.take(500))
-                                        }
-                                        OutreachIntents.openWhatsAppWithDraft(
-                                            context = context,
-                                            rawPhone = lead?.contactPhone.orEmpty(),
-                                            message = editableBody
-                                        )
-                                    },
-                                    enabled = isApproved && editableBody.isNotBlank() && !isDoNotContact,
-                                    modifier = Modifier.weight(1f).height(48.dp).testTag("open_whatsapp_button"),
-                                    colors = ButtonDefaults.buttonColors(containerColor = EmeraldSuccess, contentColor = PureWhite),
-                                    shape = RoundedCornerShape(12.dp)
-                                ) {
-                                    Icon(Icons.AutoMirrored.Filled.Send, contentDescription = null, modifier = Modifier.size(16.dp))
-                                    Spacer(Modifier.width(6.dp))
-                                    Text(strings.openWhatsApp, maxLines = 1)
-                                }
-
-                                OutlinedButton(
-                                    onClick = {
-                                        val lead = selectedLead
-                                        if (lead != null && logToHistoryChecked) {
-                                            onLogOutreach(lead.id, ContactChannel.EMAIL, editableBody.take(500))
-                                        }
-                                        OutreachIntents.openEmailWithDraft(
-                                            context = context,
-                                            recipientEmail = lead?.email.orEmpty(),
-                                            subject = editableSubject.ifBlank { "Askari Family Takaful Introduction" },
-                                            body = editableBody
-                                        )
-                                    },
-                                    enabled = isApproved && editableBody.isNotBlank() && !isDoNotContact,
-                                    modifier = Modifier.weight(1f).height(48.dp).testTag("open_email_button"),
-                                    shape = RoundedCornerShape(12.dp)
-                                ) {
-                                    Icon(Icons.Filled.Email, contentDescription = null, modifier = Modifier.size(16.dp))
-                                    Spacer(Modifier.width(6.dp))
-                                    Text(strings.openEmail, maxLines = 1)
-                                }
-                            }
-
-                            OutlinedButton(
-                                onClick = {
-                                    OutreachIntents.copyToClipboard(context, "Askari Takaful Draft", editableBody)
-                                },
-                                enabled = isApproved && editableBody.isNotBlank(),
-                                modifier = Modifier.fillMaxWidth().height(46.dp),
-                                shape = RoundedCornerShape(12.dp)
-                            ) {
-                                Icon(Icons.Filled.ContentCopy, contentDescription = null, modifier = Modifier.size(16.dp))
-                                Spacer(Modifier.width(6.dp))
-                                Text(strings.copyMessage)
-                            }
-                        }
-                    }
+                    AiDraftApprovalCard(
+                        strings = strings,
+                        selectedLead = selectedLead,
+                        selectedFormat = selectedFormat,
+                        showEmailSubject = studioMode == StudioMode.OUTREACH_DRAFT,
+                        editableSubject = editableSubject,
+                        editableBody = editableBody,
+                        isApproved = isApproved,
+                        isDoNotContact = isDoNotContact,
+                        logToHistoryChecked = logToHistoryChecked,
+                        onSubjectChange = { aiViewModel.updateSubject(it) },
+                        onBodyChange = { aiViewModel.updateBody(it) },
+                        onApprovedChange = { aiViewModel.setApproved(it) },
+                        onLogHistoryChange = { logToHistoryChecked = it },
+                        onLogOutreach = onLogOutreach
+                    )
                 }
             }
         }

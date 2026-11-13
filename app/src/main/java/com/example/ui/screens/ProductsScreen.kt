@@ -67,7 +67,8 @@ fun ProductsScreen(
     strings: UiStrings,
     language: AppLanguage,
     notesState: UiState<Map<String, ProductVerificationNote>>,
-    onSaveProductNote: (ProductVerificationNote) -> Unit
+    onSaveProductNote: (ProductVerificationNote) -> Unit,
+    onOpenAiWithProduct: (OfficialTakafulProduct) -> Unit = {}
 ) {
     val context = LocalContext.current
     val notesMap = (notesState as? UiState.Success)?.data.orEmpty()
@@ -125,6 +126,14 @@ fun ProductsScreen(
                         }
                     }
                 }
+            }
+
+            item {
+                NeedAnalysisSection(
+                    strings = strings,
+                    language = language,
+                    onDraftAiForProduct = onOpenAiWithProduct
+                )
             }
 
             items(OfficialProductCatalog.products, key = { it.id }) { product ->

@@ -5,7 +5,9 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.example.data.model.ContactChannel
 import com.example.data.model.ContactHistoryEntry
+import com.example.data.model.GmMonthlyTarget
 import com.example.data.model.Lead
+import com.example.data.model.LeadPermissionStatus
 import com.example.data.model.LeadStatus
 import com.example.data.model.ProductVerificationNote
 import com.example.data.model.Prospect
@@ -37,7 +39,9 @@ data class DashboardMetrics(
     val contactedClients: Int = 0,
     val interestedClients: Int = 0,
     val followUpsDue: Int = 0,
-    val completedSales: Int = 0
+    val completedSales: Int = 0,
+    val warmReferrals: Int = 0,
+    val activeOutreachCount: Int = 0
 )
 
 class MainViewModel(
@@ -108,6 +112,24 @@ class MainViewModel(
             started = SharingStarted.WhileSubscribed(STOP_TIMEOUT_MILLIS),
             initialValue = UiState.Loading
         )
+
+    val monthlyTargetState: StateFlow<UiState<GmMonthlyTarget>> =
+        repository.observeMonthlyTarget(currentUserId, currentYearMonth())
+            .map<GmMonthlyTarget, UiState<GmMonthlyTarget>> { UiState.Success(it) }
+            .catch { error ->
+                val firestoreError = generateSequence(error) { it.cause }
+                    .filterIsInstance<FirebaseFirestoreException>()
+                    .firstOrNull()
+                if (firestoreError == null && error is CancellationException) throw error
+                val rootError = firestoreError ?: error
+                Log.w(TAG, "Error observing monthly target", rootError)
+                emit(UiState.Error(rootError.message ?: "Failed to load monthly targets"))
+            }
+            .stateIn(
+                scope = viewModelScope,
+                started = SharingStarted.WhileSubscribed(STOP_TIMEOUT_MILLIS),
+                initialValue = UiState.Loading
+            )
 
     private val _actionMessage = MutableStateFlow<String?>(null)
     val actionMessage: StateFlow<String?> = _actionMessage.asStateFlow()
@@ -230,12 +252,58 @@ class MainViewModel(
         }
     }
 
+    fun upgradeProspectToLead(
+        prospectId: String,
+        lead: Lead,
+        onComplete: (Boolean) -> Unit = {}
+    ) {
+        viewModelScope.launch {
+            val addResult = repository.addLead(lead.copy(id = ""))
+            addResult.onSuccess {
+                repository.deleteProspect(prospectId)
+                _actionMessage.value = "Prospect upgraded to Full Lead."
+                onComplete(true)
+            }.onFailure { err ->
+                _actionMessage.value = err.localizedMessage ?: "Failed to upgrade prospect."
+                onComplete(false)
+            }
+        }
+    }
+
+    fun saveMonthlyTarget(
+        salesTarget: Long,
+        outreachTarget: Long,
+        referralTarget: Long,
+        targetMonth: String = currentYearMonth(),
+        onDone: () -> Unit = {}
+    ) {
+        viewModelScope.launch {
+            repository.saveMonthlyTarget(
+                GmMonthlyTarget(
+                    userId = currentUserId,
+                    targetMonth = targetMonth,
+                    salesTarget = salesTarget,
+                    outreachTarget = outreachTarget,
+                    referralTarget = referralTarget
+                )
+            ).onSuccess {
+                _actionMessage.value = "Monthly GM targets updated."
+                onDone()
+            }.onFailure { err ->
+                _actionMessage.value = err.localizedMessage ?: "Failed to update monthly targets."
+            }
+        }
+    }
+
     companion object {
         private const val TAG = "MainViewModel"
         private const val STOP_TIMEOUT_MILLIS = 5000L
 
         fun todayIsoDate(): String =
             SimpleDateFormat("yyyy-MM-dd", Locale.US).format(Date())
+
+        fun currentYearMonth(): String =
+            SimpleDateFormat("yyyy-MM", Locale.US).format(Date())
 
         fun isFollowUpDue(lead: Lead, todayIso: String = todayIsoDate()): Boolean {
             if (lead.status == LeadStatus.COMPLETED.name || lead.status == LeadStatus.ARCHIVED.name) {
@@ -254,7 +322,11 @@ class MainViewModel(
                 contactedClients = leads.count { it.status == LeadStatus.CONTACTED.name },
                 interestedClients = leads.count { it.status == LeadStatus.INTERESTED.name },
                 followUpsDue = leads.count { isFollowUpDue(it, today) },
-                completedSales = leads.count { it.status == LeadStatus.COMPLETED.name }
+                completedSales = leads.count { it.status == LeadStatus.COMPLETED.name },
+                warmReferrals = leads.count { it.permissionStatus == LeadPermissionStatus.REFERRAL_INTRO.name },
+                activeOutreachCount = leads.count {
+                    it.status != LeadStatus.NEW.name && it.status != LeadStatus.ARCHIVED.name
+                }
             )
         }
 
