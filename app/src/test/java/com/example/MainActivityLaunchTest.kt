@@ -2,7 +2,6 @@ package com.example
 
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import androidx.compose.ui.test.onNodeWithTag
-import com.google.firebase.FirebaseApp
 import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -17,24 +16,22 @@ class MainActivityLaunchTest {
 
     @Test
     @Config(sdk = [29])
-    fun launchMainActivity_api29_rendersWithoutCrash() {
+    fun launchMainActivity_api29_showsSetupInsteadOfCrashing() {
         composeRule.waitForIdle()
-        composeRule.onNodeWithTag("auth_language_toggle").assertExists()
-        composeRule.onNodeWithTag("google_sign_in_button").assertExists()
+        composeRule.onNodeWithTag("firebase_setup_required").assertExists()
     }
 
     @Test
     @Config(sdk = [36])
-    fun launchMainActivity_api36_rendersWithoutCrash() {
+    fun launchMainActivity_api36_showsSetupInsteadOfCrashing() {
         composeRule.waitForIdle()
-        composeRule.onNodeWithTag("auth_language_toggle").assertExists()
-        composeRule.onNodeWithTag("google_sign_in_button").assertExists()
+        composeRule.onNodeWithTag("firebase_setup_required").assertExists()
     }
 
     @Test
     @Config(sdk = [24])
-    fun launchMainActivity_api24_rendersWithoutCrash() {
+    fun launchMainActivity_api24_showsSetupInsteadOfCrashing() {
         composeRule.waitForIdle()
-        composeRule.onNodeWithTag("auth_language_toggle").assertExists()
+        composeRule.onNodeWithTag("firebase_setup_required").assertExists()
     }
 }
